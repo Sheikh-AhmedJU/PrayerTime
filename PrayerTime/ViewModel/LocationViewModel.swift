@@ -19,7 +19,6 @@ class LocationViewModel: ObservableObject {
         didSet {
             if let location = self.currentLocation {
                 self.calculatePrayerTimes(location: location)
-                self.calculateLocalTime(latitude: location.latitude, longitude: location.longitude)
             }
         }
     }
@@ -60,34 +59,26 @@ class LocationViewModel: ObservableObject {
         }
     }
     public func calculatePrayerTimes(location: Location, method: CalculationMethod = .moonsightingCommittee){
-        self.isCalculating = .isCalculating
-        let geoCoder = CLGeocoder()
-        let clLocation = CLLocation(latitude: location.latitude, longitude: location.longitude)
-        geoCoder.reverseGeocodeLocation(clLocation) { (placemarks, error) in
-            if let error = error {
-                self.isCalculating = .finishedWithError
-            } else if let placemark = placemarks?.first, let timeZone = placemark.timeZone {
-                let coordinates = Adhan.Coordinates(latitude: location.latitude, longitude: location.longitude)
-                let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "dd/MM/yyyy"
-                if let dateComponent = self.getDateInLocation(timeZone: timeZone) {
-                    if let prayerTimes = PrayerTimes(coordinates: coordinates, date: dateComponent, calculationParameters: method.params){
-                        self.fajrTime = self.calculateTime(time: prayerTimes.fajr, timeZone: timeZone)
-                        self.sunriseTime = self.calculateTime(time: prayerTimes.sunrise, timeZone: timeZone)
-                        self.duhrTime = self.calculateTime(time: prayerTimes.dhuhr, timeZone: timeZone)
-                        self.asrTime = self.calculateTime(time: prayerTimes.asr, timeZone: timeZone)
-                        self.maghribTime = self.calculateTime(time: prayerTimes.maghrib, timeZone: timeZone)
-                        self.ishaTime = self.calculateTime(time: prayerTimes.isha, timeZone: timeZone)
-                        DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 0.5) {
-                            self.isCalculating = .finishedCalculating
-                        }
-                    }
-                    else {
-                        self.isCalculating = .finishedWithError
-                    }
-                }
-                else {
-                    self.isCalculating = .finishedWithError
+        guard let timeZone = location.timeZone else {
+            self.isCalculating = .finishedWithError
+            return
+        }
+        let coordinates = Adhan.Coordinates(latitude: location.latitude, longitude: location.longitude)
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "dd/MM/yyyy"
+        if let dateComponent = self.getDateInLocation(timeZone: timeZone) {
+            if let prayerTimes = PrayerTimes(coordinates: coordinates, date: dateComponent, calculationParameters: method.params){
+                self.fajrTime = self.calculateTime(time: prayerTimes.fajr, timeZone: timeZone)
+                self.sunriseTime = self.calculateTime(time: prayerTimes.sunrise, timeZone: timeZone)
+                self.duhrTime = self.calculateTime(time: prayerTimes.dhuhr, timeZone: timeZone)
+                self.asrTime = self.calculateTime(time: prayerTimes.asr, timeZone: timeZone)
+                self.maghribTime = self.calculateTime(time: prayerTimes.maghrib, timeZone: timeZone)
+                self.ishaTime = self.calculateTime(time: prayerTimes.isha, timeZone: timeZone)
+                self.gregorianTime = self.calculateLocalGregorianTime(time: Date(), timeZone: timeZone).toNarrativeDate(calendarType: .gregorian)
+                self.weekDay = self.gregorianTime.weekDay()
+                self.hijriTime = self.calculateLocalGregorianTime(time: Date(), timeZone: timeZone).toNarrativeDate(calendarType: .hijri)
+                DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 0.5) {
+                    self.isCalculating = .finishedCalculating
                 }
             }
             else {
@@ -107,6 +98,17 @@ class LocationViewModel: ObservableObject {
         }.first?.split(separator: ":").dropLast().joined(separator: ":")
         if let result = timeComponents {
             return result
+        }
+        return ""
+    }
+    // calculate local time
+    private func calculateLocalGregorianTime(time: Date, timeZone: TimeZone)->String{
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "dd/MM/yyyy HH:mm:ss"
+        dateFormatter.timeZone = timeZone
+        let convertedTime = dateFormatter.string(from: time).split(separator: " ")
+        if let result = convertedTime.first {
+            return String(result)
         }
         return ""
     }
@@ -131,24 +133,6 @@ class LocationViewModel: ObservableObject {
             
         }
         return nil
-    }
-    
-    func calculateLocalTime(latitude: Double, longitude: Double){
-        let geoService = GeoNameService()
-        geoService.getTimeZone(latitude: latitude, longitude: longitude) { (result) in
-            switch result{
-            case .success(let model):
-                if let timeZoneModel = model,
-                    let greogorianTime = timeZoneModel.time?.split(separator: " ").first?.split(separator: "-").reversed().joined(separator: "/") {
-                    self.gregorianTime = greogorianTime.toNarrativeDate(calendarType: .gregorian)
-                    self.weekDay = greogorianTime.weekDay()
-                    self.hijriTime = greogorianTime.toNarrativeDate(calendarType: .hijri)
-                    self.errorMessage = nil
-                }
-            case .failure(let error):
-                self.errorMessage = error.localizedDescription
-            }
-        }
     }
 }
 

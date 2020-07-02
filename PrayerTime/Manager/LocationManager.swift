@@ -19,11 +19,11 @@ enum LocationRequestState: String {
     case doNotRequest
 }
 
-
 class LocationManager: NSObject, ObservableObject {
     @Published var isLocationFound: Bool = false
     @Published var isLocationPermissionGiven: Bool = true
-    @Published var location: CLLocation = CLLocation()
+    @Published var geoLocation: Location?// = Location()
+    @Published var errorMessage: String?
     
     private var locationManager: CLLocationManager = CLLocationManager()
     private var shouldRequestLocation: LocationRequestState = .doNotRequest
@@ -60,11 +60,52 @@ class LocationManager: NSObject, ObservableObject {
             locationManager.requestWhenInUseAuthorization()
         }
     }
+    
+    private func fetchLocationInfo(currentLocation: CLLocation){
+        var timeZone: TimeZone?
+        let queue = OperationQueue()
+        let fetchGeoName = BlockOperation{
+            let geoNameService = GeoNameService()
+            geoNameService.getGeoLocation(latitude: currentLocation.coordinate.latitude, longitude: currentLocation.coordinate.longitude) { (result) in
+                switch result {
+                case .success(let model):
+                    guard let model = model?.geonames?.filter({
+                        !($0.countryName?.isEmpty ?? true) && !($0.name?.isEmpty ?? true)
+                    }).first,
+                        let city = model.name,
+                        let country = model.countryName else { return }
+                    let geoLocation = Location(cityName: city, countryName: country, latitude: currentLocation.coordinate.latitude, longitude: currentLocation.coordinate.longitude, timeZone: timeZone)
+                    DispatchQueue.main.async {
+                        self.geoLocation = geoLocation
+                    }
+                case .failure(let error):
+                    self.errorMessage = error.localizedDescription
+                    print("Error: \(error.localizedDescription)")
+                }
+            }
+        }
+        let fetchTimeZone = BlockOperation {
+            let geoCoder = CLGeocoder()
+            let clLocation = currentLocation
+            geoCoder.reverseGeocodeLocation(clLocation) { (placemarks, error) in
+                if let placemark = placemarks?.first, let placeTimeZone = placemark.timeZone {
+                    timeZone = placeTimeZone
+                    queue.addOperation(fetchGeoName)
+                }
+                else if let error = error {
+                    self.errorMessage = error.localizedDescription
+                    print("Another error: \(error.localizedDescription)")
+                }
+            }
+        }
+        queue.addOperation(fetchTimeZone)
+    }
 }
 
 extension LocationManager: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         self.shouldRequestLocation = .doNotRequest
+        self.errorMessage = error.localizedDescription
         print("Location Service Error : \(error.localizedDescription)")
     }
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -72,12 +113,11 @@ extension LocationManager: CLLocationManagerDelegate {
             if let location = locations.last {
                 self.shouldRequestLocation = .shouldRequest
                 self.locationManager.stopUpdatingLocation()
-                self.location = location
+                self.fetchLocationInfo(currentLocation: location)
             }
         }
     }
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
-        print("status : \(status.rawValue)")
         switch status{
         case .authorizedAlways, .authorizedWhenInUse:
             self.locationPermissionStatus = .permissionGiven

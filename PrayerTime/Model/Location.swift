@@ -15,6 +15,7 @@ struct Location: Hashable, Codable{
     var countryName: String = ""
     var latitude: Double = 0.0
     var longitude: Double = 0.0
+    var timeZone: TimeZone?
 }
 
 struct LocationObject: Codable{

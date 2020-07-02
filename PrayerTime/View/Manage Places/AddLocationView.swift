@@ -15,7 +15,7 @@ struct AddLocationView: View {
         VStack{
             HStack{
                 LocationSearchView(locationViewModel: addLocationViewModel)
-                GeoLocationView()
+                GeoLocationView(addLocationViewModel: addLocationViewModel)
             }
             if addLocationViewModel.errorMessage == nil {
                 SuggestedLocationsView(addLocationViewModel: addLocationViewModel)
